@@ -14,4 +14,6 @@ Testing on your local machine:
 
 Testing on a Node.js server:
 
-(coming soon)
+
+
+(See the comments in server.js; full instructions coming sooner or later)
