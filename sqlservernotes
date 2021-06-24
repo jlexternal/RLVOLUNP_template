@@ -1,0 +1,46 @@
+for mySQL server management: localhost/phpmyadmin/setup for setting up
+localhost/phpmyadmin for access
+tools:
+  https://medium.com/@ozgenbaris/how-to-run-apache-php-mysql-and-phpmyadmin-on-macos-sierra-3d2df5fce2e4
+
+
+
+<--------Exporting files to CSV from the mySQL database------->
+
+When trying to export results of queries from the database into a CSV, one might use something like :
+
+  mysql> SELECT * FROM main_table INTO OUTFILE 'out/test.csv' FIELDS ENCLOSED BY '"' TERMINATED BY ';' LINES TERMINATED BY '\n';
+
+Which then may have different types of errors.
+
+1/ One error might be that you don't have permission to write to some directory (prevented by mySQL).
+To fix, check
+
+  mysql> SHOW VARIABLES LIKE "secure_file_priv";
+
+and see what directory that is assigned to. If you want to change it to write it anywhere, that must be set to NULL or "" within /etc/my.cnf
+as such:
+
+  > sudo vim /etc/my.cnf
+
+then enter
+
+  [mysqld]
+  secure_file_priv=""
+
+and save.
+
+2/ Another type of error is that you do not have permission to write from an SQL database into your local directories via the OS.
+To fix, allow this privilege.
+
+Find the location of where data is written from mySQL:
+
+  > mysql -u root -p -e 'SHOW VARIABLES WHERE Variable_Name="datadir"'
+
+Then check the owner of each file/folder
+
+  > ls -lh /usr/local/var/mysql/
+
+You may see that it is _mysql as the owner of most if not all these files. Change them to the OS admin (or other):
+
+  > sudo chown -R _mysql:admin /usr/local/var/mysql/*

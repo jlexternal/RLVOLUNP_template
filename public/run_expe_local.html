@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>My experiment</title>
+    <!-- Import external functions and plugins -->
+    <script src ="jquery/jquery-3.6.0.js"></script>
+    <script src ="jspsych-6.3.0/jspsych.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-keyboard-response.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-keyboard-response-min-duration.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-keyboard-response-faded.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-keyboard-response-sequential-faded.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-instructions.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-instructions-faded.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-preload.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-slider-response.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-survey-text.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-fullscreen.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-external-html.js"></script>
+    <link href  ="jspsych-6.3.0/css/jspsych.css" rel="stylesheet" type="text/css">
+    <!-- Import experiment functions -->
+    <script src="exec_expe.js"></script>
+    <script src="participant_feedback.js"></script>
+    <script src="duration_fn.js"></script>
+    <script src="multiduration_fn.js"></script>
+  </head>
+  <body></body>
+  <script>
+
+    /* For testing on a local machine
+        You need to host a local server for the ajax stuff to work properly.
+        Go to the project working directory, open terminal, type 'python -m http.server'
+        without the single quotes, then open http://localhost:8000/run_expe_local.html in browser
+    */
+
+    /* Requirements to run the code
+        traj.csv:    file containing the reward values scaled from 0 to 1 for the correct option.
+        idx_epi.csv: file containing the trial indices of switch blocks
+    */
+
+    var debugFlag  = true; // change to true if debugging data is desired
+    var isLocal    = true; // true when running on local HTTP server
+
+    var subj_num   = 1;         //debug: to be brought in from the online testing platform
+    var unique_id  = '001TEST'; //debug: for testing purposes
+
+    var timeline   = []; // initialize jsPsych timeline variable
+    var idx_blocks = [];
+
+    // need to work on making the practice sessions and giving feedback based on performance
+    // the training blocks should be written in a separate function and called upon before
+    // exec_expe in the success property of the last AJAX call
+
+    /* Process pre-made experiment data */
+    $(document).ready(function() {
+      $.ajax({ // import block indices into javascript
+          type:     "GET",
+          url:      "idx_epi.csv",
+          dataType: "text",
+          error:    function() { // in case of failure
+            console.log('block index csv file GET failed');
+          }
+       })
+       .done((idx_blocks_data) => {
+         // the block indices correspond to whatever order traj.csv is in
+         var block_indices = idx_blocks_data.split(/\r\n|\n/);
+         idx_blocks[0] = block_indices[0].split(',').map(Number);
+         idx_blocks[1] = block_indices[1].split(',').map(Number);
+         console.log('block index csv file GET succeeded');
+
+         // define variable to be eventually passed into the experiment function
+         var task_data = {};
+         task_data.idx_blocks = idx_blocks;
+
+         $.ajax({ // import experiment data into javascript and run tasks
+             type:     "GET",
+             url:      "traj.csv",
+             dataType: "text",
+             error:    function() { // in case of failure
+               console.log('feedback csv file GET failed');
+             },
+             success:  function(traj_data) { // experiment gets called upon here
+
+               var rewards_arr = traj_data.split(/\r\n|\n/); // takes text and splits it at carriage return points
+               if (rewards_arr.length > n_sessions){
+                 while (rewards_arr.length != n_sessions) {
+                   rewards_arr.pop(); // remove empty row
+                 }
+               }
+               // convert unseparated text arrays to separated numerical arrays
+               var rew_corr   = [],
+                   n_sessions = 6;
+               for (var i=0; i<n_sessions; i++){
+                 let lines = rewards_arr[i].split(',').map(Number); // round the entries before bringing into js
+                 lines = lines.map(x => Math.round(x*100));
+                 rew_corr.push(lines);
+               }
+               task_data.traj = rew_corr;
+               console.log('feedback csv file GET succeeded');
+
+               exec_expe(task_data);
+             }
+          });
+       });
+    });
+
+  </script>
+</html>

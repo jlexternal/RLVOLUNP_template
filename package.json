@@ -1,0 +1,31 @@
+{
+  "name": "nodejs-testing",
+  "engines": {
+    "node": "15.12.0",
+    "npm": "7.11.1"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "description": "testing",
+  "version": "1.0.0",
+  "main": "server.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jlexternal/scalingo-testing.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jlexternal/scalingo-testing/issues"
+  },
+  "homepage": "https://github.com/jlexternal/scalingo-testing#readme",
+  "dependencies": {
+    "csv-parse": "^4.15.4",
+    "csv-parser": "^3.0.0",
+    "csv-string": "^4.0.1",
+    "express": "^4.17.1",
+    "mysql": "^2.18.1",
+    "node-csv": "^0.1.2"
+  }
+}

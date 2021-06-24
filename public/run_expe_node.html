@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>My experiment</title>
+    <!-- Import external functions and plugins -->
+    <script src ="jquery/jquery-3.6.0.js"></script>
+    <script src ="jspsych-6.3.0/jspsych.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-keyboard-response.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-keyboard-response-min-duration.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-keyboard-response-faded.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-keyboard-response-sequential-faded.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-instructions.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-instructions-faded.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-preload.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-html-slider-response.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-survey-text.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-fullscreen.js"></script>
+    <script src ="jspsych-6.3.0/plugins/jspsych-external-html.js"></script>
+    <link href  ="jspsych-6.3.0/css/jspsych.css" rel="stylesheet" type="text/css">
+    <!-- Import experiment functions -->
+    <script src="exec_expe.js"></script>
+    <script src="duration_fn.js"></script>
+    <script src="multiduration_fn.js"></script>
+    <script src="participant_feedback.js"></script>
+  </head>
+  <body>
+      <style>
+        .container {
+          height: 200px;
+          width: 600px;
+          position: absolute;
+        }
+
+      </style>
+      <div class="container">
+          <span style = "text-align: center; font-size: 20px; font-weight: bold;">Loading experiment<br><br>
+          DO NOT REFRESH! (if you refresh, you will not be able to access the study at all)<br><br>
+          Please wait</span>
+
+          <span style = "font-size: 20px; font-weight: bold"; id="wait">.</span>
+          <script>
+          var intval  = 200;
+          function dots() {
+            var wait = document.getElementById("wait");
+            if ( wait.innerHTML.length > 2 )
+                wait.innerHTML = "";
+            else
+                wait.innerHTML += ".";
+            }
+            var interval = window.setInterval(dots, 200);
+          </script>
+      </div>
+
+
+  </body>
+  <script>
+    /* For testing with a Node.js server
+        You will need a separate JavaScript file with the server details in a higher
+        level directory above where run_expe.html is located, (e.g. server.js)
+        In this file, you need to specify the port number.
+        In the folder where server.js is located, open the terminal,
+        and type 'node server.js'
+        then open http://localhost:#### where #### is the port number specified in
+        server.js
+
+        (This will be a bit more complicated if you are throwing a mySQL server in the mix)
+    */
+
+    /* Notes:
+        There are lines where certain values are hard coded. These will be marked with
+        a comment: // hard coded
+    */
+
+    var debugFlag  = false; // change to true if debugging data is desired
+    var isLocal    = false; // true when running on local HTTP server
+
+    // parse the URL queries on clientside by itself
+    const queryString = window.location.search;
+    const urlParams = new URLSearchParams(queryString);
+    var pid = urlParams.get('prolific_id');
+
+    /* Order of client-side loadings*/
+    var subj_num;
+    var unique_id;
+
+    // open initial page asking for information coming from Prolific
+    // upon confirmation of data transfer, open up the experiment page
+
+    var timeline = []; // jsPsych timeline variable initialized here
+
+    /* Process pre-made experiment data and run experiment once everything is confirmed */
+    $(document).ready(function() {
+      $.ajax({
+          url: '/request_task',
+          type: 'POST',
+          data: {pid: pid},
+          success: console.log('SUCCESS request_task POST request!'),
+          error: (err) => { console.log(err) }
+      })
+        .done((data) => {
+          console.log('DONE request_task POST');
+          // get the task data object created in the server from the request_task POST call
+          if (typeof(data.subj_num)=='number') {
+            unique_id = data.unique_id;
+            subj_num = data.subj_num;
+
+            var task_data = {
+              traj:      data.traj,
+              idx_blocks: data.idx_blocks
+            };
+            exec_expe(task_data);
+            clearInterval(interval);
+          } else {
+            console.error('No ID data returned!');
+          }
+        })
+        .fail((xhr,txt,err) => { console.log('FAIL request_task POST'); console.log(err); });
+    });
+  </script>
+</html>
