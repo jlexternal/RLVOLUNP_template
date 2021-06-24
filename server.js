@@ -1,72 +1,73 @@
 /* server.js
-    Server initialization and server-side request handling code
+    Server initialization, server-to-database comms, client-server request handling code
+
     Note:   This code requires the node.js environment to function properly
     Author: Jun Seok Lee <jlexternal@gmail.com> - May 2021
 */
 
 /*
   Server-side requirements:
-    An SQL database with the necessary tables. (see build_database.js & populate_server.js)
+    An SQL database with the necessary tables. (see build_database.js)
     The modules imported below (and installed).
+
   Client-side requirements:
     The URL to access the application MUST have a prolific_id query with
     a 24 character string specifying the Prolific ID.
+    (You can get rid of the code that requires this for testing purposes, but if
+     using Prolific as the recruitment platform, this will facilitate data
+     gathering)
+
+  - JL
 */
 
 // import modules
 var http        = require('http');
 var fs          = require('fs');
-var express     = require('express');
+var express     = require('express'); // the experiment is launched through an Express application
 var path        = require('path');
 var mysql       = require('mysql');
 var bodyParser  = require('body-parser');
 
-var buildDB     = require('./build_database');
-const nsubj     = 2;
+var buildDB     = require('./build_database'); // custom module that contains functions to build the database
+
+const nsubj     = 2; // number of subjects to build database for
 const nblock    = 6;
 const ntrial    = 80;
 
-var queries_cache1      = [], // array to hold all queries to be printed to console (redundancy for safety)
+    // arrays to hold queries to be sent to database
+var queries_cache1      = [],
     queries_cache2      = [],
+    // arrays to hold queries to be printed to console (redundancy for safety)
     queries_cache_block = '',
     queries_cache_other = [];
 
 var app = express();
 app.set('port', process.env.PORT || 8000);                // listening port
-app.use(express.static(path.join(__dirname, 'public')));  // adds directories to active path
-app.use(bodyParser.urlencoded({ extended: true }));       // need to read JSON object body
+app.use(express.static(path.join(__dirname, 'public')));  // add specified directory to active path
+app.use(bodyParser.urlencoded({ extended: true }));       // needed to read JSON object body in Express
 
-// details of the mySQL server
-  /* If using Scalingo as PaaS...
-      In the Scalingo CLI, type : 'scalingo env'
-      This should result in something like :
-        'SCALINGO_MYSQL_URL=
-        mysql://username:password@hosturl:portnumber/database_name?useSSL=true&verifyServerCertificate=false'
-        => scheme://user:password@host:port/database_name
-            user:     username
-            password: password
-            host:     hosturl
-            port:     portnumber
-            db_name:  database_name
-     If using something else...
-      You need to figure it out yourself.
-  */
+// launch server
+var server = http.createServer(app);
+server.listen(app.get('port'), function () {
+  console.log("Express server listening on port " + app.get('port'));
+});
 
-// 8,10,12 bugged out,
+/* _.~"~._.~"~._.~"~._.~"~._ BEGIN: SERVER-DATABASE-related code _.~"~._.~"~._.~"~._.~"~._ */
 
-
-// database configuration parameters
+// details of the mySQL database configuration parameters
 var db_config = {
-  /* for use on local machine
-  // access local mySQL db via 'mysql -u root' and enter the root password
   connectionLimit: 10,
+
+  //*/ // comment or uncomment the 1st / to toggle database choice
+  // for use on local machine
+  // access local mySQL db via 'mysql -u root' and enter the root password
   host: "localhost",
   user: "test",
   password: "123123",
   database: 'main_db'
-  //*/
-  /* <for use on Scalingo>
-  connectionLimit: 10,
+
+  /*/
+  // for use on Scalingo
   host:     'hosturl.mysql.dbs.scalingo.com',
   user:     'username',
   password: 'password',
@@ -74,22 +75,22 @@ var db_config = {
   database: 'database_name'
   //*/
 };
+
 var con;
-/* The server needs to be able to handle disconnects/timeouts to SQL
-    since this is considered a fatal error.
-    Either send noncrucial queries every now and then (e.g. 'SELECT 1;') or set up a system to handle these.
-    https://github.com/mysqljs/mysql#server-disconnects
-    https://stackoverflow.com/questions/20210522/nodejs-mysql-error-connection-lost-the-server-closed-the-connection
+/*
+  This function will try to make a one-time connection to the database, and deal with PROTOCOL_CONNECTION_LOST
+  errors. It is used one time during server launch to create/check for the database. The rest of the connections
+  to the database are handled by the pool.
 */
 function handleDisconnect() {
-  con = mysql.createConnection(db_config); // Recreate the connection, since the old one cannot be reused.
-  con.connect(function(err) {              // The server is either down
-    if(err) {                                     // or restarting (takes a while sometimes).
+  con = mysql.createConnection(db_config);
+  con.connect(function(err) {
+    if(err) {
       console.log('error when connecting to db:', err);
-      setTimeout(handleDisconnect, 2000); // We introduce a delay before attempting to reconnect,
-    }                                     // to avoid a hot loop, and to allow our node script to
-  });                                     // process asynchronous requests in the meantime.
-                                          // If you're also serving http, display a 503 error.
+      setTimeout(handleDisconnect, 2000);
+    }
+  });
+
   con.on('error', function(err) {
     console.log('db error', err);
     if(err.code === 'PROTOCOL_CONNECTION_LOST') { // Connection to the MySQL server is usually
@@ -101,10 +102,12 @@ function handleDisconnect() {
 }
 handleDisconnect();
 
-// To use pooled SQL connections instead of individual ones
+// use pooled SQL connections
 const pool = mysql.createPool(db_config);
 
-// Promise-ified version of SQL query to get the task data
+/* Promise-ified versions of the standard SQL query function */
+
+// send a single SQL query to the database using a direct connection
 function sendQuery(conn,sql) {
     return new Promise ( (resolve, reject) => {
       conn.query(sql, (error, results, fields) => {
@@ -117,25 +120,7 @@ function sendQuery(conn,sql) {
     });
 }
 
-function sendQueryPool(sql) {
-  return new Promise ((resolve, reject) => {
-    pool.getConnection(function(err, connection) {
-      if (err) throw err; // not connected!
-
-      connection.query(sql, (error, results, fields) => {
-        connection.release(); // when done with the connection, release it.
-
-        // SQL error handling
-        if (error) {
-          return reject(error);
-        }
-        resolve({results, fields});
-      });
-    });
-  });
-}
-
-// sendQuery but the entry is an array of queries
+// sendQuery but the entry is an array of queries (using pool)
 async function sendQueryLoop(conn,queryArray) {
   var results_all = [];
   var promises = [];
@@ -151,7 +136,6 @@ async function sendQueryLoop(conn,queryArray) {
           }
           results_all.push(results);
         });
-
       })
     );
   }
@@ -159,11 +143,30 @@ async function sendQueryLoop(conn,queryArray) {
   return results_all;
 }
 
+// sendQuery but using the pool
+function sendQueryPool(sql) {
+  return new Promise ((resolve, reject) => {
+    pool.getConnection(function(err, connection) {
+      if (err) throw err; // not connected!
+      connection.query(sql, (error, results, fields) => {
+        connection.release(); // when done with the connection, release it.
+        // SQL error handling
+        if (error) {
+          return reject(error);
+        }
+        resolve({results, fields});
+      });
+    });
+  });
+}
+
 // write to database every 30 seconds
 var sendCacheToggle     = 0;
 const sendCacheInterval = 30000;
+
 // query batch to database and print for redundancy/backup
 function sendCachedQueries() {
+  // start the query string for the bulk insert query
   var queries_cache_str = 'INSERT INTO resp_table '+
                           '(unique_id, cond, i_block, i_round, i_trial, seen_feedback, is_correct, choice_position, choice_symbol, reaction_time) VALUES ';
 
@@ -184,6 +187,7 @@ function sendCachedQueries() {
           resolve();
       }
     }
+    // check the 2nd cache
     else {
       if (queries_cache2.length != 0) {
           //console.log('\n Sending queries from cache 2...'); //debug
@@ -200,7 +204,7 @@ function sendCachedQueries() {
       }
     }
   }))
-  .then(()=> {
+  .then(() => {
     // reset cache that has been sent
     if (sendCacheToggle == 1) {
         queries_cache2 = [];
@@ -210,7 +214,7 @@ function sendCachedQueries() {
   })
   .catch((error) => console.log(error));
 }
-// send cached queries to db and then dump them
+// send cached queries to db based on predetermined interval
 setInterval(function() {
   sendCachedQueries();
 },sendCacheInterval);
@@ -237,7 +241,7 @@ async function checkTablesExistence() {
   return ntables;
 }
 
-// check if database is built already, if not, build_database; if so, skip
+// check if database is built already, if not, build interval; if so, skip
 checkTablesExistence()
 .then(function(ntables) {
   if (ntables == 0) {
@@ -254,10 +258,10 @@ checkTablesExistence()
         promises.push(sendQueryLoop(con,main_table_queryArray));
         promises.push(sendQueryLoop(con,task_table_queryArray));
         await Promise.all(promises);
-    }).then(()=> {
+    }).then(() => {
         console.log('Connection ended (build_tables)');
         console.log('You should manually ensure that task_table is well filled.');
-        setTimeout(()=>{
+        setTimeout(() => {
           con.end();
         },5000);
     });
@@ -270,17 +274,28 @@ checkTablesExistence()
       con.destroy();
   }
 });
+/* _.~"~._.~"~._.~"~._.~"~._ END: SERVER-DATABASE-related code _.~"~._.~"~._.~"~._.~"~._ */
 
-// launch Express server
-var server = http.createServer(app);
-server.listen(app.get('port'), function () {
-  console.log("Express server listening on port " + app.get('port'));
-});
+
+/* _.~"(_.~"(_.~"(_.~"(_.~"( BEGIN: SERVER-FRONTEND-related code _.~"(_.~"(_.~"(_.~"(_.~"( */
+
+/*
+  The main way that the frontend communicates with the server is through HTTP requests, mainly
+    GET and (mostly) POST.
+  I will try to explain to the best of my ability what is happening in these requests through
+    comments below.
+
+  - JL
+*/
 
 // create a route for the main page
 app.get('/', (req, res) => {
-  // get URL parameters (for Prolific ID)
-  var pid = req.query.prolific_id; // The case of prolific_id is important. It should be in lowercase, or there may be problems with parsing it
+  // the first argument of .get (i.e. '/') is the URL that is accessed
+  // 'req' is what is brought in from client, 'res' is what the server resolves
+
+  // get URL parameters (for Prolific ID) (URL parameters are specified after a ? in the URL string)
+  var pid = req.query.prolific_id; // The case of prolific_id is important.
+                                   // It should be in lowercase, or there may be problems with parsing it
 
   // make sure that the Prolific ID is exactly 24 characters
   if (pid.length != 24) {
@@ -295,12 +310,29 @@ app.get('/', (req, res) => {
   fs.readFile('public/run_expe.html', function(err, data) {
     return res.end();
   });
-  // send to client
+  // send the file to client
   res.sendfile('public/run_expe.html');
+  /*
+    The code in run_expe.html will trigger the POST requests below.
+
+    - JL
+  */
 });
 
 // SQL queries to update and get information at start of task
 async function runGetTaskLoop(nb,nt,pid) {
+  /*
+    This function is the initial link between the client as a participant and the experiment.
+    It checks to see whether the subject has already accessed the study, and if so, blocks them from continuing.
+    If they are a new participant, it links a unique identifier pre-established in the database to the
+      unique Prolific identifier.
+    It then extracts the data needed to pass into the experiment for this specific participant from the
+      database into the server, then send that data to the participant (client).
+    The function itself is called upon in the 'request_task' POST request below.
+
+    - JL
+  */
+
   // check for repeat of prolific id
   let query_str_check = "SELECT EXISTS(SELECT * FROM main_table WHERE prolific_id = '"+pid+"');";
 
@@ -315,13 +347,12 @@ async function runGetTaskLoop(nb,nt,pid) {
         console.log('Moving on...');
     }
    });
-   //debug: need to send an alert to the client saying that there is a repeat of the prolific id
 
   // get the first unique_id from server that is not already taken
   let query_str_uid = 'SELECT unique_id, isubj FROM main_table WHERE prolific_id IS NULL LIMIT 1;';
   let query_out_uid = await sendQueryPool(query_str_uid);
-  let unique_id     = query_out_uid.results[0].unique_id;
-  subj_num          = query_out_uid.results[0].isubj;
+  let unique_id     = query_out_uid.results[0].unique_id,
+      subj_num      = query_out_uid.results[0].isubj;
 
   // update main_table with Prolific ID and timestamp start of task
   let query_str_pid = 'UPDATE main_table ' +
@@ -335,11 +366,10 @@ async function runGetTaskLoop(nb,nt,pid) {
       return false;
   }
 
-  // get relevant task data for the specific participant
+  // get relevant task data for the specific unique ID
   var table_name = 'task_table';
   var traj_all = [];
   var idx_blocks = [];
-
   for (var ib=1; ib<nb+1; ib++) {
     let traj_block = [];
     let idx_block= [];
@@ -364,7 +394,7 @@ async function runGetTaskLoop(nb,nt,pid) {
       idx_blocks.push(idx_block); // global idx_block filled here
     }
   }
-  // create the task object to send to function
+  // create the task object to be returned
   var task_obj = {
     idx_blocks: idx_blocks,
     traj_all: traj_all,
@@ -374,54 +404,59 @@ async function runGetTaskLoop(nb,nt,pid) {
   return task_obj;
 }
 
-// listen for POST request_task request from frontend
+// listen for request_task POST request from client
 app.post('/request_task', (req, res) => {
   console.log('POST request_task requested from client!');
-  const nblocks   = 6;
-  const ntrials   = 80;
-
   if (req.body.pid) {
+    // get prolific id
     let pid = req.body.pid;
+
     // variables to send to client
     let traj, idx_blocks, uid, subj_num;
 
-    // loop through the blocks and trials to get task data
-    runGetTaskLoop(nblocks,ntrials,pid)
+    // get the task data from the DATABASE into the SERVER
+    runGetTaskLoop(nblock,ntrial,pid)
       .then(function(result) {
         // error
         if (!result) {
-          return false;
+            return false;
         } else {
-          // fill variables to send
-          traj       = result.traj_all;
-          idx_blocks = result.idx_blocks;
-          uid        = result.unique_id;
-          subj_num   = result.subj_num;
-          return true;
+            // fill variables to send
+            idx_blocks = result.idx_blocks;
+            traj       = result.traj_all;
+            uid        = result.unique_id;
+            subj_num   = result.subj_num;
+            return true;
         }
-      }) // global traj filled here
+      })
+      // send the task data in the SERVER to the CLIENT
       .then(function(continueFlag) {
         if (continueFlag) {
           setTimeout(function() { // wait a little bit for the query to be processed
             var task_data = {
-              traj: traj,
               idx_blocks: idx_blocks,
+              traj: traj,
               unique_id: uid,
               subj_num: subj_num
             };
-            res.send(task_data); // send id data to client
+            res.send(task_data); // send the obtained data back to client
             res.end();
           },100);
         }
       })
       .catch(console.error); //debug : maybe return an erorr page to client
   }
-
 });
 
 // listen for server calls to query TASK RESPONSES to SQL database
 app.post('/post_resp', (req, res) => {
-  //console.log('POST resp requested from client!');
+  /*
+      This request is made everytime the participant makes a response on a trial.
+      Each value passed from the client to the server must be TYPEMATCHED
+        to the type set in the database.
+
+      - JL
+  */
   if (req.body) {
     var table_name = 'resp_table'; // change to necessary table name
     var data = req.body,
@@ -436,6 +471,7 @@ app.post('/post_resp', (req, res) => {
             cs = data.choice_symbol,
             rt = data.reaction_time;
 
+    // create the query string for the specific trial
     var char_fields = new Set(['unique_id','cond','choice_position']);
     var field_str = '';
     var value_str = '';
@@ -471,7 +507,6 @@ app.post('/post_resp', (req, res) => {
     if (it % 40 == 0) {
       queries_cache_block += value_str;
       (new Promise((resolve, reject) => {
-
         let insert_str = 'INSERT INTO resp_table '+
                          '(unique_id, cond, i_block, i_round, i_trial, seen_feedback, is_correct, choice_position, choice_symbol, reaction_time) VALUES ';
         console.log('Hemi-block response log dump:\n');
@@ -479,19 +514,19 @@ app.post('/post_resp', (req, res) => {
         console.log('\n');
       }))
       .then(queries_cache_block = '');
-
     } else {
         queries_cache_block += value_str;
     }
-
     res.send(true);
     res.end();
   } else {
-    console.log('Parsed object body is empty!');
-    res.send(false);
-    res.end();
+      console.log('Parsed object body is empty!');
+      res.send(false);
+      res.end();
   }
 });
+
+// the below POST requests work similarly as above - JL
 
 // listen for server calls to write PARTICIPANT FEEDBACK to SQL database
 app.post('/post_fb', (req, res) => {
@@ -500,7 +535,7 @@ app.post('/post_fb', (req, res) => {
     var data = req.body,
         unique_id = data.unique_id,
         feedback1  = data.entry1,
-        feedback2  = mysql.escape(data.entry2);
+        feedback2  = mysql.escape(data.entry2); // escape free responses to prevent SQL injections
 
     var feedback = feedback1.concat('Q0:"' +feedback2.slice(1,-1)+'"');
     var query_str = "UPDATE "+table_name+" SET feedback = '"+feedback+"' "+
@@ -508,7 +543,7 @@ app.post('/post_fb', (req, res) => {
     console.log('Prolific id: ' + unique_id + ' sent feedback!');
     queries_cache_other.push(query_str);
     sendQueryPool(query_str)
-    .then(()=> {
+    .then(() => {
       console.log('Connection released (post_fb)');
     });
 
@@ -527,7 +562,7 @@ app.post('/bonus', (req, res) => {
 
     queries_cache_other.push(query_str);
     sendQueryPool(query_str)
-    .then(()=> {
+    .then(() => {
       console.log('Connection released (bonus)');
     });
 
@@ -547,10 +582,12 @@ app.post('/end_task', (req, res) => {
     console.log(query_str_end_task);
     queries_cache_other.push(query_str_end_task);
     sendQueryPool(query_str_end_task)
-    .then(()=> {
+    .then(() => {
       console.log('Connection released (end_task)');
     });
-    res.send(true); // return 'true' back to client
+    res.send(true);
   }
   res.end();
 });
+
+/* _.~"(_.~"(_.~"(_.~"(_.~"( END: SERVER-FRONTEND-related code _.~"(_.~"(_.~"(_.~"(_.~"( */
