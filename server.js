@@ -319,7 +319,7 @@ app.get('/', (req, res) => {
   */
 });
 
-// SQL queries to update and get information at start of task
+// SQL queries to update and get data at start of task
 async function runGetTaskLoop(nb,nt,pid) {
   /*
     This function is the initial link between the client as a participant and the experiment.
@@ -335,8 +335,7 @@ async function runGetTaskLoop(nb,nt,pid) {
 
   // check for repeat of prolific id
   let query_str_check = "SELECT EXISTS(SELECT * FROM main_table WHERE prolific_id = '"+pid+"');";
-
-  let result = await sendQueryPool(query_str_check);
+  let result          = await sendQueryPool(query_str_check);
 
   Object.values(JSON.parse(JSON.stringify(result.results[0]))).map(val => {
     if (val != 0) { // if the EXISTS check is true
@@ -368,11 +367,11 @@ async function runGetTaskLoop(nb,nt,pid) {
 
   // get relevant task data for the specific unique ID
   var table_name = 'task_table';
-  var traj_all = [];
+  var traj_all   = [];
   var idx_blocks = [];
   for (var ib=1; ib<nb+1; ib++) {
-    let traj_block = [];
-    let idx_block= [];
+    let traj_block  = [];
+    let idx_block   = [];
     for (var it=1; it<nt+1; it++) {
       // get feedback values for the correct option
       let query_str_traj = 'SELECT correct_choice_feedback FROM '+table_name+' WHERE ' +
@@ -458,15 +457,15 @@ app.post('/post_resp', (req, res) => {
       - JL
   */
   if (req.body) {
-    var table_name = 'resp_table'; // change to necessary table name
-    var data = req.body,
+    var table_name = 'resp_table';
+    var data   = req.body,
      unique_id = data.unique_id, // CHAR
-            cd = data.cond, // CHAR
+            cd = data.cond,      // CHAR
             ib = data.i_block,
             ir = data.i_round,
             it = data.i_trial,
             fb = data.seen_feedback,
-            cr = data.is_correct, //BOOL
+            cr = data.is_correct,      // BOOL
             cp = data.choice_position, // CHAR
             cs = data.choice_symbol,
             rt = data.reaction_time;
@@ -532,8 +531,8 @@ app.post('/post_resp', (req, res) => {
 app.post('/post_fb', (req, res) => {
   if (req.body) {
     var table_name = 'main_table';
-    var data = req.body,
-        unique_id = data.unique_id,
+    var data       = req.body,
+        unique_id  = data.unique_id,
         feedback1  = data.entry1,
         feedback2  = mysql.escape(data.entry2); // escape free responses to prevent SQL injections
 
